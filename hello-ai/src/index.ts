@@ -10,35 +10,32 @@
  *
  * Learn more at https://developers.cloudflare.com/workers/
  */
+
+
 import { DurableObject } from "cloudflare:workers";
 
 
-export class MyDurableObject extends DurableObject<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
-    // Required, as we're extending the base class.
-    super(ctx, env)
-  }
+export class superstore extends DurableObject<Env> {
+    constructor(ctx: DurableObjectState, env: Env) {
+	// Required, as we're extending the base class.
+	super(ctx, env)
+    }
 
-	async add_history(): Promise<string> {
-	    let result = this.ctx.storage.sql
-		.exec("SELECT 'Hello, World!' as greeting")
+    async update_history(name:string, history: string): Promise<string> {
+	
+	ctx.waitUntil(this.ctx.storage.kv.put(name, history))
+	
+    }
 
-	    console.log(result)
-	    
-	    return result.greeting;
-	}
-
-	async lookup_history(): Promise<string> {
-	    let result = this.ctx.storage.sql
-		.exec("SELECT 'Hello, World!' as greeting")
-	    return result.greeting;
-	}
-
+    async read_history(name: string): Promise<string> {
+	
+	let result = this.ctx.storage.kv.get(name);
+	
+	return result;
+	
+    }
 
 }
-
-
-
 
 
 export interface Env {
@@ -46,6 +43,7 @@ export interface Env {
     // replace "AI" with the variable name you defined.
     AI: Ai;
 }
+
 
 export default {
     async fetch(request, env, ctx): Promise<Response> {
@@ -79,11 +77,6 @@ export default {
 	    }
 	}
 	
-	if (url.includes("form")) {
-	    return rawHtmlResponse(someForm);
-	}
-
-	
 	//  https://developers.cloudflare.com/workers/examples/cors-header-proxy/
 
 	const corsHeaders = {
@@ -115,10 +108,12 @@ export default {
 	    const name = deduce_name(reqBody["prompt"]);
 
 	    const history = deduce_history(name);
-	
+	    
 	    console.log(name)
 
-	    padded_prompt = `My name is ${name}. Here is my long-term history (full history within upcoming brackets): ( ${history} ). ${reqBody["prompt"]}`
+	    const padded_prompt = `My name is ${name}. Here is my long-term history (full history within upcoming brackets): ( ${history} ). ${reqBody["prompt"]}. You are a psycologist, so please psychoanalyse this.`
+
+	    console.log(padded_prompt)
 
 	    const response = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
 		prompt: padded_prompt,
@@ -135,7 +130,6 @@ export default {
 
     }
 }satisfies ExportedHandler<Env>;
-
 
 
 function deduce_name(prompt: string) {
@@ -170,15 +164,21 @@ async function deduce_history(name: string) {
 
     if (name !== "anonymous") {
 
-	const stub = env.MY_DURABLE_OBJECT.getByName(name);
+	const stub = env.MY_DURABLE_OBJECT.getByName("superstore");
 	
 	const history_new = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
 	    prompt: `Extract facts and history about writer of the following: ${reqBody["prompt"]}`
 	});
 	
-	const history_prev = await stub.lookup_history();
+	const history_prev = await stub.read_history(name);
 
 	const history_accumulated = history_new + history_prev;
+
+	const status = await stub.update_history(name, history_accumulated)
+
+	console.log(status)
+
+	return history_accumulated;
 	
     } else {
 

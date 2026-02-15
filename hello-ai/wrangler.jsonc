@@ -14,9 +14,32 @@
 		"nodejs_compat"
 	],
 	
-	  "ai": {
+	  "ai": {	
 	      "binding": "AI"
-	        }
+	        },
+
+
+
+
+"durable_objects": {
+    "bindings": [
+      {
+        "name": "MY_DURABLE_OBJECT",
+        "class_name": "superstore"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["superstore"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+
+
 	
 	/**
 	 * Smart Placement
@@ -47,3 +70,5 @@
 	 */
 	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
 }
+
+
