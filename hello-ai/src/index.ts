@@ -15,25 +15,62 @@
 import { DurableObject } from "cloudflare:workers";
 
 
-export class superstore extends DurableObject<Env> {
-    constructor(ctx: DurableObjectState, env: Env) {
-	// Required, as we're extending the base class.
-	super(ctx, env)
-    }
+export class MyDurableObjectx extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    // Required, as we're extending the base class.
+      super(ctx, env)
 
-    async update_history(name:string, history: string): Promise<string> {
-	
-	ctx.waitUntil(this.ctx.storage.kv.put(name, history))
-	
-    }
+      // The SQLite database is accessed via ctx.storage.sql
+    this.sql = ctx.storage.sql;
 
-    async read_history(name: string): Promise<string> {
-	
-	let result = this.ctx.storage.kv.get(name);
-	
-	return result;
-	
+    // Initialize the table if it doesn't exist
+    // In production, strictly prefer using Wrangler migrations instead of running DDL here.
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS kv_store (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+    `);
+  }
+
+    async getFullTable() {
+    const cursor = this.sql.exec("SELECT * FROM kv_store");
+
+    const allRows = cursor.toArray();
+
+    // 3. Return as JSON
+    return allRows
     }
+    
+    
+  // 2. The PUT method (Insert or Overwrite)
+    async put(key: string, value: string): Promise<string> {
+    // We use 'INSERT OR REPLACE' which is the SQLite standard for KV updates
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)", 
+      key, 
+      value
+    );
+    return "OK";
+  }
+
+  // 3. The GET method
+    async get(key: string): Promise<string> {
+    // Prepare the query
+const result = this.ctx.storage.sql
+        .exec("SELECT value FROM kv_store WHERE key = ?", key)
+
+    const row = result.next();
+
+    // If result.done is true, no row was found
+    if (row.done) {
+      return null;
+    }
+    
+    // Return the 'value' column
+    return row.value.value;
+  }
+    
 
 }
 
@@ -107,11 +144,11 @@ export default {
 
 	    const name = deduce_name(reqBody["prompt"]);
 
-	    const history = deduce_history(name);
-	    
 	    console.log(name)
 
-	    const padded_prompt = `My name is ${name}. Here is my long-term history (full history within upcoming brackets): ( ${history} ). ${reqBody["prompt"]}. You are a psycologist, so please psychoanalyse this.`
+	    const history = await deduce_history(name, reqBody["prompt"], env, ctx);
+	    
+	    const padded_prompt = `My name is ${name}. Here is my long-term history (full history within upcoming brackets): ( ${history} ). ${reqBody["prompt"]}. You are a psycologist, so please psychoanalyse this. Max 256 tokens, so be short.`
 
 	    console.log(padded_prompt)
 
@@ -160,23 +197,47 @@ function deduce_name(prompt: string) {
 }
 
 
-async function deduce_history(name: string) {
+async function deduce_history(name: string, prompt: string, env, ctx) {
 
     if (name !== "anonymous") {
 
-	const stub = env.MY_DURABLE_OBJECT.getByName("superstore");
-	
-	const history_new = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
-	    prompt: `Extract facts and history about writer of the following: ${reqBody["prompt"]}`
-	});
-	
-	const history_prev = await stub.read_history(name);
+	const id = env.MY_DURABLE_OBJECT.idFromName("global-store");
 
-	const history_accumulated = history_new + history_prev;
+	const stub = env.MY_DURABLE_OBJECT.get(id);
 
-	const status = await stub.update_history(name, history_accumulated)
+	const full_table = await stub.getFullTable()
+
+	console.log(full_table)
+	
+	const [history_new, history_prev] = await Promise.all([
+	    env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+		prompt: `Extract all facts (even if insignificant) and history about writer of the following, keep response as short as possible, zero tokens is there are none: ${prompt}`
+	    }),
+	    stub.get(name)
+	])
+	
+	console.log(history_new, history_prev)
+
+	let history_accumulated = '';
+
+	if (!history_prev) {
+	    
+	    history_accumulated = history_new;
+
+
+	} else {
+
+	    history_accumulated = history_new + history_prev;
+	    
+	}
+
+	const status = await stub.put(name, history_accumulated)
 
 	console.log(status)
+
+	const full_table_2 = await stub.getFullTable()
+
+	console.log(full_table_2)
 
 	return history_accumulated;
 	

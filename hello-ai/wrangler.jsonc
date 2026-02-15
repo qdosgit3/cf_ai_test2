@@ -20,25 +20,19 @@
 
 
 
-
-"durable_objects": {
+  "durable_objects": {
     "bindings": [
       {
         "name": "MY_DURABLE_OBJECT",
-        "class_name": "superstore"
+        "class_name": "MyDurableObjectx"
       }
-    ]
-  },
+    ]},
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["superstore"]
+      "new_sqlite_classes": ["MyDurableObjectx"]
     }
-  ],
-  "observability": {
-    "enabled": true
-  }
-
+  ]
 
 	
 	/**
